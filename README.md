@@ -18,8 +18,9 @@
 4. **安全便捷的`hosts`操作**
     - 临时模式：在临时模式下，工具会自动备份原始`hosts`文件内容，在程序退出时无缝恢复，让你可以放心测试优化效果，而无需担心对系统造成永久性影响。
     - 永久模式：若你对优化效果满意，可选择永久模式，将优化配置直接写入`hosts`文件，长期享受稳定的GitHub连接。
-    - 自动刷新：每次更新`hosts`文件后，工具会自动执行`ipconfig /flushdns`命令，立即刷新本地DNS缓存，确保新配置迅速生效。
+    - 自动刷新：更新后自动执行DNS刷新命令（Windows: ipconfig /flushdns，Linux: systemd-resolve/nscd，macOS: killall -HUP mDNSResponder）
 
+<<<<<<< Updated upstream
 ## 四、如何使用
 1. **下载代码**
 本工具的源代码托管在 GitHub 仓库中，你可以按照以下步骤下载：
@@ -86,3 +87,73 @@ pack.bat
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=EveGlowLuna/GitHubAccelerator&type=Date)](https://star-history.com/#EveGlowLuna/GitHubAccelerator&Date) 
+=======
+## 四、跨平台使用指南
+### 1. 下载代码
+```bash
+git clone https://github.com/EveGlowLuna/GitHubAccelerator.git
+cd GitHubAccelerator
+```
+### 2. 编译项目
+#### Windows 系统
+```bat
+:: 需要管理员权限运行
+pyinstaller --onefile --icon=github-mark.ico --version-file=version_info.txt ^
+--hidden-import=concurrent.futures --hidden-import=ctypes.wintypes ^
+--uac-admin --clean --add-data="*.json;." GitHubAccelerator.py
+```
+#### Linux 系统
+```bash
+# 安装依赖
+sudo apt-get install python3-pip
+pip3 install pyinstaller requests pythonping
+
+# 编译
+pyinstaller --onefile --add-data="*.json:." \
+--hidden-import=concurrent.futures --clean \
+GitHubAccelerator.py -n GitHubAccelerator
+```
+#### macOS 系统
+```bash
+# 生成应用图标
+mkdir -p icons.iconset
+sips -z 16 16 github-mark.png --out icons.iconset/icon_16x16.png
+sips -z 32 32 github-mark.png --out icons.iconset/icon_16x16@2x.png
+iconutil -c icns icons.iconset -o app_icon.icns
+
+# 编译
+pyinstaller --onefile --add-data="*.json:." \
+--icon=app_icon.icns --hidden-import=concurrent.futures \
+--clean GitHubAccelerator.py -n GitHubAccelerator.app
+```
+### 3. 运行程序
+#### Windows
+```powershell
+右键点击"GitHubAccelerator.exe" -> 以管理员身份运行
+```
+#### Linux/macOS
+```bash
+# 授予执行权限
+chmod +x GitHubAccelerator
+sudo ./GitHubAccelerator
+```
+## 五、操作说明
+1. **主菜单功能**
+    - 应用优化配置：自动获取最新IP并执行网络测试
+    - 移除优化配置：安全恢复原始hosts设置
+    - 切换模式：临时模式（退出自动还原）/永久模式
+    - 退出程序：正常退出工具
+
+2. **各平台差异说明**
+    | 功能               | Windows               | Linux/macOS         |
+    |--------------------|-----------------------|---------------------|
+    | 管理员权限获取     | 自动UAC提权           | 需sudo运行          | 
+    | 配置文件存储       | 程序目录              | ~/.github_accel_ips |
+    | DNS刷新命令        | ipconfig /flushdns    | systemd-resolve     |
+
+## 六、技术支持与反馈
+**反馈渠道**：
+- GitHub Issues: [问题提交](https://github.com/EveGlowLuna/GitHubAccelerator/issues)
+- 邮箱: ychen4514@outlook.com（标题注明"GitHub网络优化工具反馈"）
+[![Star History Chart](https://api.star-history.com/svg?repos=EveGlowLuna/GitHubAccelerator&type=Date)](https://star-history.com/#EveGlowLuna/GitHubAccelerator&Date)
+>>>>>>> Stashed changes
