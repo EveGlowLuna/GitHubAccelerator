@@ -18,8 +18,6 @@ pyinstaller --onefile ^
 --uac-admin ^
 --clean ^
 --workpath="build" ^
---distpath="dist" ^
---specpath="spec" ^
 GitHubAccelerator.py
 
 if %errorlevel% neq 0 (
