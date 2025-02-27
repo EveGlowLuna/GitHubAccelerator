@@ -1,0 +1,56 @@
+name: Build Application
+
+on:
+  push:
+    branches:
+      - main  # 可根据需要修改为你要触发构建的分支
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9  # 可根据需要修改 Python 版本
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            pip install py2app
+          else
+            pip install pyinstaller
+          fi
+
+      - name: Build application
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            py2applet --make-setup GitHubAccelerator.py
+            python setup.py py2app
+          else
+            if [ "$RUNNER_OS" == "Windows" ]; then
+              pyinstaller --onefile --icon=github-mark.png --version-file=version_info.txt --hidden-import=concurrent.futures --hidden-import=ctypes.wintypes --uac-admin --clean GitHubAccelerator.py
+            else
+              pyinstaller --onefile GitHubAccelerator.py
+            fi
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ runner.os }}-build
+          path: |
+            if [ "$RUNNER_OS" == "macOS" ]; then
+              dist
+            else
+              dist
+            fi
