@@ -6,48 +6,53 @@
 **智能网络加速工具 - 优化GitHub访问体验**
 
 ## 核心功能
-!!!text
+```text
 - 实时检测并修复`objects.githubusercontent.com`连接
 - 智能优选全球最快的GitHub CDN节点
 - 跨平台Hosts文件安全操作（自动备份/恢复）
 - 应急IP库自动更新机制（30天强制刷新）
+```
 
 ## 编译指南
 ### Windows系统
-!!!bat
+```bat
 pyinstaller --onefile --icon=github-mark.png ^
 --hidden-import=concurrent.futures ^
 --uac-admin --add-data="*.json;." ^
 --version-file=version_info.txt ^
 GitHubAccelerator.py -n GitHubAccelerator.exe
+```
 
 ### Linux系统
-!!!bash
+```bash
 pyinstaller --onefile \
 --add-data="*.json:." \
 --hidden-import=concurrent.futures \
 --clean \
 GitHubAccelerator.py -n GitHubAccelerator
+```
 
 ### macOS系统
-!!!bash
+```bash
 pyinstaller --onefile \
 --add-data="*.json:." \
 --runtime-hook=hooks/hook-mac_signature.py \
 --hidden-import=concurrent.futures \
 GitHubAccelerator.py -n GitHubAccelerator.app
+```
 
 ## 使用说明
 ### 首次运行
-!!!bash
+```bash
 # Linux/macOS需要权限
 sudo chmod +x GitHubAccelerator
 sudo ./GitHubAccelerator
 
 # Windows右键选择"以管理员身份运行"
+```
 
 ### 主菜单操作
-!!!text
+```text
  应用优化配置 - 自动完成：
     1. 获取最新IP地址
     2. 执行网络质量测试
@@ -61,9 +66,10 @@ sudo ./GitHubAccelerator
     - 永久模式：长期保留优化配置
 
  退出程序
+ ```
 
 ## 技术亮点
-!!!text
+```text
 - 智能IP验证体系：
   ✅ TCP 443端口可达性检测
   ✅ HTTPS证书有效性验证
@@ -78,23 +84,27 @@ sudo ./GitHubAccelerator
   🖥️ 自动适配不同系统路径：
     Windows: C:\Windows\System32\drivers\etc\hosts
     Unix: /etc/hosts
+```
 
 ## 常见问题
 ### 连接测试失败
-!!!text
+```text
 现象：网络诊断显示所有IP不可用
+```
 解决方案：
 1. 检查本地防火墙设置
 2. 尝试使用应急模式：
-!!!bash
+```bash
 sudo ./GitHubAccelerator --emergency
+```
 
 ### DNS未及时更新
-!!!bash
+```bash
 # 手动刷新DNS缓存
 sudo systemd-resolve --flush-caches  # Linux
 sudo killall -HUP mDNSResponder     # macOS
 ipconfig /flushdns                  # Windows
+```
 
 ## 支持与反馈
 **问题反馈渠道**：
