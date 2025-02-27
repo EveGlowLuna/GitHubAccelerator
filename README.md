@@ -6,12 +6,10 @@
 **智能网络加速工具 - 优化GitHub访问体验**
 
 ## 核心功能
-```text
 - 实时检测并修复`objects.githubusercontent.com`连接
 - 智能优选全球最快的GitHub CDN节点
 - 跨平台Hosts文件安全操作（自动备份/恢复）
 - 应急IP库自动更新机制（30天强制刷新）
-```
 
 ## 编译指南
 ### Windows系统
