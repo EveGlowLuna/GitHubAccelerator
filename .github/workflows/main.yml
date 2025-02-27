@@ -1,86 +1,56 @@
-name: Multi-Platform Build
+name: Build Application
 
 on:
   push:
-    tags: ['v*.*.*']
-  workflow_dispatch:
+    branches:
+      - main  # 可根据需要修改为你要触发构建的分支
 
 jobs:
   build:
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-22.04, macos-13]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.10.11"
-        cache: 'pip'
-        cache-dependency-path: requirements.txt
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9  # 可根据需要修改 Python 版本
 
-    - name: Platform Setup
-      timeout-minutes: 15
-      run: |
-        case "${{ runner.os }}" in
-          "Windows")
-            pip install --retries 3 pyinstaller==5.13.0
-            ;;
-          "Linux")
-            sudo apt-get install -y patchelf binutils
-            pip install pyinstaller==5.13.0
-            ;;
-          "macOS")
-            brew install libffi
-            export LDFLAGS="-L$(brew --prefix libffi)/lib"
-            export CPPFLAGS="-I$(brew --prefix libffi)/include"
-            pip install py2app==0.28.6
-            ;;
-        esac
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            pip install py2app
+          else
+            pip install pyinstaller
+          fi
 
-    - name: Build Executable
-      timeout-minutes: 25
-      run: |
-        case "${{ runner.os }}" in
-          "Windows")
-            pyinstaller --onefile --icon=github-mark.png \
-              --uac-admin --add-data="hooks/*;hooks" \
-              --hidden-import=concurrent.futures \
-              GitHubAccelerator.py -n GitHubAccelerator.exe
-            ;;
-          "Linux")
-            pyinstaller --onefile --add-data="hooks/*:hooks" \
-              --hidden-import=concurrent.futures \
-              --clean GitHubAccelerator.py -n GitHubAccelerator
-            strip dist/GitHubAccelerator
-            ;;
-          "macOS")
-            mkdir -p icons.iconset
-            sips -z 512 512 github-mark.png --out icons.iconset/icon_512x512.png
-            iconutil -c icns icons.iconset -o github-mark.icns 2>/dev/null || true
-            
-            cat > setup.py <<'EOF'
-            from setuptools import setup
-            APP = ['GitHubAccelerator.py']
-            DATA_FILES = ['hooks', 'github-mark.png']
-            OPTIONS = {'iconfile': 'github-mark.icns'}
-            setup(app=APP, data_files=DATA_FILES, options={'py2app': OPTIONS}, setup_requires=['py2app'])
-            EOF
-            
+      - name: Build application
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            py2applet --make-setup GitHubAccelerator.py
             python setup.py py2app
-            ;;
-        esac
+          else
+            if [ "$RUNNER_OS" == "Windows" ]; then
+              pyinstaller --onefile --icon=github-mark.png --version-file=version_info.txt --hidden-import=concurrent.futures --hidden-import=ctypes.wintypes --uac-admin --clean GitHubAccelerator.py
+            else
+              pyinstaller --onefile GitHubAccelerator.py
+            fi
+          fi
 
-    - uses: actions/upload-artifact@v4
-      with:
-        name: GitHubAccelerator-${{ runner.os }}
-        path: |
-          ${{ 
-            contains(runner.os, 'macOS') && 'dist/GitHubAccelerator.app' || 
-            format('dist/GitHubAccelerator{0}', contains(runner.os, 'Windows') && '.exe' || '')
-          }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ runner.os }}-build
+          path: |
+            if [ "$RUNNER_OS" == "macOS" ]; then
+              dist
+            else
+              dist
+            fi
