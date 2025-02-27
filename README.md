@@ -109,8 +109,4 @@ ipconfig /flushdns                  # Windows
 - GitHub Issues: [提交问题](https://github.com/EveGlowLuna/GitHubAccelerator/issues)
 - 紧急支持邮箱: ychen4514@outlook.com（标题加[紧急]）
 
-**技术文档**：
-- [操作手册](docs/USERGUIDE.md)
-- [开发日志](docs/CHANGELOG.md)
-
 [![Star History Chart](https://api.star-history.com/svg?repos=EveGlowLuna/GitHubAccelerator&type=Timeline)](https://star-history.com/#EveGlowLuna/GitHubAccelerator)
