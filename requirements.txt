@@ -1,9 +1,10 @@
+requests==2.31.0
+pythonping==1.1.4
+pyinstaller==5.13.0
 ctypes
 sys
 os
 re
-requests
-concurrent.futures
 subprocess
 atexit
 json
@@ -11,4 +12,3 @@ socket
 datetime
 pathlib
 tempfile
-pythonping

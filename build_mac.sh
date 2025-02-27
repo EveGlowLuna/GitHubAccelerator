@@ -1,21 +1,22 @@
-#!/bin/zsh
-# 清理旧构建
-rm -rf dist/ build/
+#!/bin/bash
+set -e
 
-# 生成专用ICNS图标
-iconutil -c icns icons.iconset -o GitHubAccelerator.icns
+cd "$(dirname "$0")"
 
-# 执行打包（含自定义钩子）
-pyinstaller --noconfirm \
-    --onefile \
-    --name "GitHubAccelerator" \
-    --icon GitHubAccelerator.icns \
-    --add-data "emergency_ips.json:." \
-    --additional-hooks-dir=hooks \
-    --hidden-import concurrent.futures \
-    --runtime-hook=hooks/hook-mac_signature.py \
-    GitHubAccelerator.py
+# 生成临时签名证书（仅测试用）
+security create-keychain -p password build.keychain
+security default-keychain -s build.keychain
+security unlock-keychain -p password build.keychain
+security import dev_certificate.p12 -k build.keychain -P password -T /usr/bin/codesign
 
-# 签名处理
-codesign --remove-signature dist/GitHubAccelerator
-codesign --force --deep -s - dist/GitHubAccelerator
+# 执行带签名的构建
+pyinstaller --onefile \
+--hidden-import=concurrent.futures \
+--runtime-hook=hooks/hook-mac_signature.py \
+--workpath=build \
+--distpath=dist \
+--specpath=spec \
+GitHubAccelerator.py
+
+# 清理临时证书
+security delete-keychain build.keychain
