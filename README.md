@@ -13,14 +13,13 @@
 
 ## 编译指南
 ### Windows系统
-```bat
+```bash
 pyinstaller --onefile --icon=github-mark.png ^
 --hidden-import=concurrent.futures ^
 --uac-admin --add-data="*.json;." ^
 --version-file=version_info.txt ^
 GitHubAccelerator.py -n GitHubAccelerator.exe
 ```
-
 ### Linux系统
 ```bash
 pyinstaller --onefile \
@@ -29,7 +28,6 @@ pyinstaller --onefile \
 --clean \
 GitHubAccelerator.py -n GitHubAccelerator
 ```
-
 ### macOS系统
 ```bash
 pyinstaller --onefile \
@@ -38,19 +36,16 @@ pyinstaller --onefile \
 --hidden-import=concurrent.futures \
 GitHubAccelerator.py -n GitHubAccelerator.app
 ```
-
 ## 使用说明
-### 首次运行
 ```bash
+### 首次运行
 # Linux/macOS需要权限
 sudo chmod +x GitHubAccelerator
 sudo ./GitHubAccelerator
 
 # Windows右键选择"以管理员身份运行"
 ```
-
 ### 主菜单操作
-```text
  应用优化配置 - 自动完成：
     1. 获取最新IP地址
     2. 执行网络质量测试
@@ -63,11 +58,8 @@ sudo ./GitHubAccelerator
     - 临时模式：程序退出自动还原
     - 永久模式：长期保留优化配置
 
- 退出程序
- ```
-
+ 退出程
 ## 技术亮点
-```text
 - 智能IP验证体系：
   ✅ TCP 443端口可达性检测
   ✅ HTTPS证书有效性验证
@@ -80,22 +72,21 @@ sudo ./GitHubAccelerator
 
 - 跨平台支持：
   🖥️ 自动适配不同系统路径：
+    ```
     Windows: C:\Windows\System32\drivers\etc\hosts
     Unix: /etc/hosts
-```
+    ```
 
 ## 常见问题
 ### 连接测试失败
-```text
 现象：网络诊断显示所有IP不可用
-```
+
 解决方案：
 1. 检查本地防火墙设置
 2. 尝试使用应急模式：
 ```bash
 sudo ./GitHubAccelerator --emergency
 ```
-
 ### DNS未及时更新
 ```bash
 # 手动刷新DNS缓存
@@ -103,7 +94,6 @@ sudo systemd-resolve --flush-caches  # Linux
 sudo killall -HUP mDNSResponder     # macOS
 ipconfig /flushdns                  # Windows
 ```
-
 ## 支持与反馈
 **问题反馈渠道**：
 - GitHub Issues: [提交问题](https://github.com/EveGlowLuna/GitHubAccelerator/issues)
