@@ -1,37 +1,129 @@
+name: Multi-Platform Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
 jobs:
-  linux-build:
-    runs-on: ubuntu-22.04
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-13]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Install System Dependencies
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10.11"
+        cache: 'pip'
+        cache-dependency-path: requirements.txt
+
+    # Windows 专用步骤
+    - name: Windows Setup
+      if: runner.os == 'Windows'
+      run: |
+        pip install pyinstaller==5.13.0
+        pyinstaller --version
+
+    # Linux 专用步骤
+    - name: Linux Dependencies
+      if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libffi-dev patchelf binutils
-    
-    - name: Build Linux Binary
-      run: |
-        sed -i 's/\r$//' build_linux.sh  # 修复Windows换行符问题
-        chmod +x build_linux.sh
-        ./build_linux.sh
+        sudo apt-get install -y patchelf binutils
+        pip install pyinstaller==5.13.0
 
-  macos-build:
-    runs-on: macos-13
-    env:
-      KEYCHAIN_PWD: ${{ secrets.KEYCHAIN_PWD }}
+    # macOS 专用步骤
+    - name: macOS Setup
+      if: runner.os == 'macOS'
+      run: |
+        brew install libffi
+        pip install py2app==0.28.6
+        export LDFLAGS="-L$(brew --prefix libffi)/lib"
+        export CPPFLAGS="-I$(brew --prefix libffi)/include"
+
+    - name: Build Executable
+      shell: bash
+      run: |
+        case "${{ runner.os }}" in
+          "Windows")
+            pyinstaller --onefile --icon=github-mark.png `
+              --uac-admin --add-data="hooks/*;hooks" `
+              --hidden-import=concurrent.futures `
+              GitHubAccelerator.py -n GitHubAccelerator.exe
+            ;;
+          "Linux")
+            pyinstaller --onefile --add-data="hooks/*:hooks" `
+              --hidden-import=concurrent.futures `
+              --clean GitHubAccelerator.py -n GitHubAccelerator
+            strip dist/GitHubAccelerator
+            ;;
+          "macOS")
+            # 动态生成 py2app 配置
+            cat > setup.py <<EOL
+            from setuptools import setup
+
+            APP = ['GitHubAccelerator.py']
+            DATA_FILES = ['hooks', 'github-mark.png']
+            OPTIONS = {
+                'iconfile': 'github-mark.icns',
+                'argv_emulation': False,
+                'plist': {
+                    'CFBundleName': "GitHubAccelerator",
+                    'CFBundleVersion': "${{ github.ref_name }}",
+                    'CFBundleExecutable': "GitHubAccelerator"
+                }
+            }
+
+            setup(
+                app=APP,
+                data_files=DATA_FILES,
+                options={'py2app': OPTIONS},
+                setup_requires=['py2app'],
+            )
+            EOL
+
+            # 生成临时图标文件
+            mkdir icons.iconset
+            sips -z 512 512 github-mark.png --out icons.iconset/icon_512x512.png
+            iconutil -c icns icons.iconset -o github-mark.icns
+
+            python setup.py py2app
+            ;;
+        esac
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: GitHubAccelerator-${{ runner.os }}
+        path: |
+          ${{ 
+            format('{0}/GitHubAccelerator{1}', 
+              (runner.os == 'macOS') && 'dist/GitHubAccelerator.app' || 'dist',
+              (runner.os == 'Windows') && '.exe' || ''
+            ) 
+          }}
+        retention-days: 3
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Import Certificate
-      run: |
-        echo ${{ secrets.MAC_CERT }} | base64 -D > dev_cert.p12
-        security create-keychain -p $KEYCHAIN_PWD build.keychain
-        security default-keychain -s build.keychain
-        security unlock-keychain -p $KEYCHAIN_PWD build.keychain
-        security import dev_cert.p12 -k build.keychain -P ${{ secrets.CERT_PWD }} -T /usr/bin/codesign
-    
-    - name: Build with Sign
-      run: |
-        chmod +x build_mac.sh
-        ./build_mac.sh
-        codesign --deep --force --verify --verbose --sign "Developer ID" dist/GitHubAccelerator
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: GitHubAccelerator-*
+        path: release
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        files: |
+          release/GitHubAccelerator-windows-latest/GitHubAccelerator.exe
+          release/GitHubAccelerator-ubuntu-22.04/GitHubAccelerator
+          release/GitHubAccelerator-macOS/GitHubAccelerator.app/*
