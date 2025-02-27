@@ -11,6 +11,9 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-22.04, macos-13]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
     - uses: actions/checkout@v4
 
@@ -21,29 +24,27 @@ jobs:
         cache: 'pip'
         cache-dependency-path: requirements.txt
 
-    # 平台专用设置
     - name: Platform Setup
+      timeout-minutes: 15
       run: |
         case "${{ runner.os }}" in
           "Windows")
             pip install --retries 3 pyinstaller==5.13.0
             ;;
           "Linux")
-            sudo apt-get update
             sudo apt-get install -y patchelf binutils
             pip install pyinstaller==5.13.0
             ;;
           "macOS")
             brew install libffi
-            pip install py2app==0.28.6
             export LDFLAGS="-L$(brew --prefix libffi)/lib"
             export CPPFLAGS="-I$(brew --prefix libffi)/include"
+            pip install py2app==0.28.6
             ;;
         esac
 
     - name: Build Executable
-      timeout-minutes: 20
-      shell: bash
+      timeout-minutes: 25
       run: |
         case "${{ runner.os }}" in
           "Windows")
@@ -59,26 +60,23 @@ jobs:
             strip dist/GitHubAccelerator
             ;;
           "macOS")
-            # 动态生成必要文件
             mkdir -p icons.iconset
             sips -z 512 512 github-mark.png --out icons.iconset/icon_512x512.png
             iconutil -c icns icons.iconset -o github-mark.icns 2>/dev/null || true
             
-            cat > setup.py <<EOL
+            cat > setup.py <<'EOF'
             from setuptools import setup
             APP = ['GitHubAccelerator.py']
             DATA_FILES = ['hooks', 'github-mark.png']
             OPTIONS = {'iconfile': 'github-mark.icns'}
             setup(app=APP, data_files=DATA_FILES, options={'py2app': OPTIONS}, setup_requires=['py2app'])
-            EOL
+            EOF
             
             python setup.py py2app
-            sudo spctl --master-disable
             ;;
         esac
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v4
       with:
         name: GitHubAccelerator-${{ runner.os }}
         path: |
@@ -86,18 +84,3 @@ jobs:
             contains(runner.os, 'macOS') && 'dist/GitHubAccelerator.app' || 
             format('dist/GitHubAccelerator{0}', contains(runner.os, 'Windows') && '.exe' || '')
           }}
-        retention-days: 3
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/download-artifact@v4
-      with:
-        pattern: GitHubAccelerator-*
-        path: release
-
-    - uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          release/**/*
