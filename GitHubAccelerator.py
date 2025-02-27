@@ -22,6 +22,7 @@ HOSTS_PATH = {
 
 TEMP_MARKER = "# GitHubAccelerator Block"
 MARKER_REGEX = re.compile(rf"{re.escape(TEMP_MARKER)}.*?{re.escape('# End Block')}", re.DOTALL)
+VERSION = "1.2.6.0"
 #endregion
 
 #region 权限管理
@@ -208,7 +209,7 @@ def main():
         while True:
             clear_screen()
             print(f'''
-GitHub网络优化工具
+GitHub网络优化工具 Version {VERSION}
 1. 应用优化配置
 2. 恢复原始配置
 3. 退出''')
