@@ -1,243 +1,419 @@
 import sys
 import os
 import re
-import requests
-import concurrent.futures
-import subprocess
-import atexit
-import json
-import socket
+import ctypes
 import platform
+import requests
+import socket
+import subprocess
+import json
+import atexit
+import concurrent.futures
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from pythonping import ping
 
-#region 核心配置
-HOSTS_PATH = {
-    'Windows': r'C:\Windows\System32\drivers\etc\hosts',
-    'Linux': '/etc/hosts',
-    'Darwin': '/private/etc/hosts'
-}[platform.system()]
+#region 跨平台配置
+HOSTS_PATHS = {
+    'windows': r'C:\Windows\System32\drivers\etc\hosts',
+    'darwin': '/private/etc/hosts',
+    'linux': '/etc/hosts'
+}
 
 TEMP_MARKER = "# GitHubAccelerator Block"
 MARKER_REGEX = re.compile(rf"{re.escape(TEMP_MARKER)}.*?{re.escape('# End Block')}", re.DOTALL)
-VERSION = "1.2.6.0"
+EMERGENCY_FILE = "emergency_ips.json"
+CURRENT_PLATFORM = sys.platform
 #endregion
 
 #region 权限管理
 def ensure_admin():
-    """跨平台权限验证"""
-    if platform.system() == 'Windows':
-        try:
-            import ctypes
-            return ctypes.windll.shell32.IsUserAnAdmin()
-        except:
-            sys.exit("需要管理员权限")
+    """跨平台管理员权限验证"""
+    if CURRENT_PLATFORM == 'win32':
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, __file__, None, 1)
+            sys.exit(0)
     else:
         if os.getuid() != 0:
-            sys.exit("请使用sudo运行")
-
+            print("请使用sudo权限运行此程序")
+            sys.exit(1)
 #endregion
 
-#region Hosts管理器
-class HostsManager:
-    def __init__(self):
-        self.backup = None
-        self.temp_mode = False
+#region 临时模式管理器
+class TempModeController:
+    _instance = None
 
-    def read_hosts(self):
-        """安全读取Hosts"""
+    def __new__(cls):
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+            cls._instance._backup = None
+            cls._instance._active = False
+        return cls._instance
+    
+    def activate(self):
+        if not self._active:
+            self._backup = self._read_hosts()
+            self._active = True
+            atexit.register(self.restore)
+
+    def deactivate(self):
+        if self._active:
+            self.restore()
+            self._active = False
+            atexit.unregister(self.restore)
+    
+    def apply_temp_changes(self, content):
+        if self._active:
+            self.write_hosts(content)
+    
+    def restore(self):
+        if self._backup:
+            self.write_hosts(self._backup)
+            flush_dns()
+    
+    def _read_hosts(self):
         try:
-            with open(HOSTS_PATH, 'r', encoding='utf-8') as f:
+            with open(HOSTS_PATHS[CURRENT_PLATFORM], 'r', encoding='utf-8') as f:
                 return f.read()
         except UnicodeDecodeError:
-            with open(HOSTS_PATH, 'r', encoding='latin-1') as f:
+            with open(HOSTS_PATHS[CURRENT_PLATFORM], 'r', encoding='latin-1') as f:
                 return f.read()
-
+    
     def write_hosts(self, content):
-        """安全写入Hosts"""
-        temp_path = os.path.join(os.path.dirname(HOSTS_PATH), 'hosts.tmp')
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        os.replace(temp_path, HOSTS_PATH)
-        self.flush_dns()
-
-    def flush_dns(self):
-        """跨平台DNS刷新"""
-        if platform.system() == 'Windows':
-            subprocess.run('ipconfig /flushdns 2>&1', shell=True, check=True)
-        elif platform.system() == 'Linux':
-            try:
-                subprocess.run(['systemd-resolve', '--flush-caches'], check=True)
-            except:
-                subprocess.run(['nscd', '-i', 'hosts'], check=True)
-        elif platform.system() == 'Darwin':
-            subprocess.run(['killall', '-HUP', 'mDNSResponder'], check=True)
-
-    def apply_optimization(self, ip_map, permanent=False):
-        """应用优化配置"""
-        original = self._clean_hosts()
-        new_block = self._generate_block(ip_map)
-        
-        if permanent:
-            self.write_hosts(f"{original}\n{new_block}")
-        else:
-            self._temp_write(f"{original}\n{new_block}")
-
-    def _clean_hosts(self):
-        """清理旧配置"""
-        return MARKER_REGEX.sub('', self.read_hosts()).strip()
-
-    def _generate_block(self, ip_map):
-        """生成配置块"""
-        lines = [TEMP_MARKER]
-        for domain, ips in ip_map.items():
-            lines.extend(f"{ip.ljust(16)}{domain}" for ip in ips)
-        lines.append("# End Block")
-        return '\n'.join(lines)
-
-    def _temp_write(self, content):
-        """临时写入"""
-        if not self.temp_mode:
-            self.backup = self.read_hosts()
-            self.temp_mode = True
-            atexit.register(self.restore)
-        self.write_hosts(content)
-
-    def restore(self):
-        """恢复配置"""
-        if self.backup:
-            self.write_hosts(self.backup)
-            self.temp_mode = False
-            atexit.unregister(self.restore)
+        with NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
+            tmp.write(content)
+            tmp_file = tmp.name
+        os.replace(tmp_file, HOSTS_PATHS[CURRENT_PLATFORM])
 #endregion
 
-#region 网络优化核心
-class GitHubOptimizer:
+#region 智能修复模块
+class ObjectsFixer:
+    TARGET_DOMAIN = "objects.githubusercontent.com"
     SOURCES = [
-        'https://cdn.jsdelivr.net/gh/521xueweihan/GitHub520@main/hosts',
-        'https://gitlab.com/ineo6/hosts/-/raw/master/hosts',
-        'https://raw.hellogithub.com/hosts'
+        "https://gitlab.com/ineo6/hosts/-/raw/master/hosts",
+        "https://fastly.jsdelivr.net/gh/521xueweihan/GitHub520@main/hosts"
     ]
-
+    
     def __init__(self):
-        self.session = requests.Session()
-        self.session.verify = False  # 禁用SSL验证
-        self.emergency_ips = {
-            'github.com': ['20.205.243.166', '140.82.121.4'],
-            'assets-cdn.github.com': ['185.199.108.153', '185.199.109.153']
-        }
+        self.current_ips = []
+        self.last_checked = datetime.min
 
-    def fetch_ips(self):
-        """获取最新IP数据"""
-        for url in self.SOURCES:
-            try:
-                resp = self.session.get(url, timeout=10)
-                if resp.status_code == 200:
-                    return self._parse_hosts(resp.text)
-            except:
-                continue
-        return self.emergency_ips
+    def is_accessible(self):
+        try:
+            sock = socket.create_connection((self.TARGET_DOMAIN, 443), 3)
+            sock.close()
+            resp = requests.head(f"https://{self.TARGET_DOMAIN}", timeout=5)
+            return resp.status_code < 500
+        except:
+            return False
+
+    def fetch_latest_ips(self):
+        collected = set()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {executor.submit(self._fetch_source, url): url for url in self.SOURCES}
+            for future in concurrent.futures.as_completed(futures):
+                if ips := future.result():
+                    collected.update(ips)
+        return list(collected) or self._fallback_ips()
+
+    def _fetch_source(self, url):
+        try:
+            resp = requests.get(url, timeout=5)
+            return self._parse_hosts(resp.text) if resp.ok else []
+        except:
+            return []
 
     def _parse_hosts(self, content):
-        """解析Hosts内容"""
+        return [parts[0] for line in content.splitlines() 
+                if (parts := line.strip().split()) 
+                and len(parts) > 1 
+                and self.TARGET_DOMAIN in parts]
+
+    def _fallback_ips(self):
+        return ["185.199.111.133", "185.199.108.133", "185.199.110.133"]
+
+    def validate_ip(self, ip):
+        return (self._test_port(ip, 443) 
+                and self._verify_ssl(ip))
+
+    def _test_port(self, ip, port):
+        try:
+            with socket.create_connection((ip, port), 3):
+                return True
+        except:
+            return False
+
+    def _verify_ssl(self, ip):
+        try:
+            resp = requests.head(
+                f"https://{ip}",
+                headers={"Host": self.TARGET_DOMAIN},
+                timeout=5,
+                verify=True
+            )
+            return resp.status_code in [200, 403]
+        except:
+            return False
+
+    def apply_fix(self):
+        if (datetime.now() - self.last_checked).seconds < 3600:
+            return
+        
+        if not self.is_accessible():
+            print("🔧 检测到连接异常，启动智能修复...")
+            if valid_ips := [ip for ip in self.fetch_latest_ips() if self.validate_ip(ip)]:
+                self._update_hosts(valid_ips)
+                self.current_ips = valid_ips
+                self.last_checked = datetime.now()
+                print(f"✅ 已更新有效IP：{', '.join(valid_ips[:3])}...")
+
+    def _update_hosts(self, ips):
+        hosts_mgr = HostsManager()
+        original = hosts_mgr.clean_hosts_content()
+        cleaned = re.sub(rf"\d+\.\d+\.\d+\.\d+\s+{self.TARGET_DOMAIN}", "", original)
+        new_block = "\n".join([f"{ip.ljust(16)}{self.TARGET_DOMAIN}" for ip in ips])
+        hosts_mgr.temp_controller.write_hosts(f"{cleaned}\n{TEMP_MARKER}\n{new_block}\n# End Block")
+        flush_dns()
+#endregion
+
+#region 网络优化模块
+class NetworkOptimizer:
+    def __init__(self):
+        self.sources = [
+            'https://gitee.com/frankwuzp/github-host/raw/main/hosts',
+            'https://mirror.ghproxy.com/https://raw.githubusercontent.com/521xueweihan/GitHub520/main/hosts'
+        ]
+        self.emergency_file = Path(EMERGENCY_FILE)
+        self._init_emergency_file()
+
+    def _init_emergency_file(self):
+        if not self.emergency_file.exists() or self._needs_update():
+            self._refresh_emergency_ips()
+
+    def _needs_update(self):
+        try:
+            mtime = datetime.fromtimestamp(self.emergency_file.stat().st_mtime)
+            return (datetime.now() - mtime) > timedelta(days=30)
+        except:
+            return True
+
+    def _refresh_emergency_ips(self):
+        new_ips = self._fetch_external_ips() or self._builtin_fallback()
+        with open(self.emergency_file, 'w') as f:
+            json.dump({
+                "version": datetime.now().strftime("%Y.%m.%d"),
+                "ips": new_ips
+            }, f, indent=2)
+
+    def _fetch_external_ips(self):
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {executor.submit(self._fetch_source, url): url for url in self.sources}
+            for future in concurrent.futures.as_completed(futures):
+                if ips := future.result():
+                    return ips
+        return None
+
+    def _fetch_source(self, url):
+        try:
+            resp = requests.get(url, timeout=5)
+            return self.parse_hosts(resp.text) if resp.ok else None
+        except:
+            return None
+
+    def _builtin_fallback(self):
+        return {
+            "github.com": ["20.205.243.166", "140.82.113.4"],
+            "assets-cdn.github.com": ["185.199.108.153"]
+        }
+
+    def parse_hosts(self, content):
         ip_map = {}
         for line in content.splitlines():
-            line = line.strip()
-            if line and not line.startswith('#'):
-                parts = re.split(r'\s+', line)
-                if len(parts) > 1 and 'github' in parts.lower():
-                    domain = parts.strip()
-                    ip_map.setdefault(domain, []).append(parts.strip())
+            if parts := re.split(r'\s+', line.strip()):
+                if len(parts) > 1 and 'github' in parts[1].lower():
+                    domain = parts[1].strip()
+                    ip_map.setdefault(domain, []).append(parts[0].strip())
         return ip_map
 
-    def benchmark(self, ip_map):
-        """IP性能测试"""
-        results = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    def get_github_ips(self):
+        try:
+            for source in self.sources:
+                if ips := self._fetch_source(source):
+                    return ips
+            with open(self.emergency_file, 'r') as f:
+                return json.load(f)['ips']
+        except:
+            return self._builtin_fallback()
+
+    def benchmark_ips(self, ip_map):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            results = {}
             for domain, ips in ip_map.items():
-                futures = {executor.submit(self._test_ip, ip, domain): ip for ip in ips}
+                futures = {executor.submit(self.test_ip, ip): ip for ip in ips}
                 sorted_ips = sorted(
                     (f.result() for f in concurrent.futures.as_completed(futures)),
                     key=lambda x: x['score']
                 )[:3]
-                results[domain] = [ip['ip'] for ip in sorted_ips]
-        return results
+                results[domain] = [ip['address'] for ip in sorted_ips]
+            return results
 
-    def _test_ip(self, ip, domain):
-        """综合测试IP"""
-        result = {'ip': ip, 'latency': 999, 'loss': 1.0, 'score': 9999}
+    def test_ip(self, ip):
+        result = {'address': ip, 'latency': 999, 'loss': 1.0, 'score': 9999}
         
         # ICMP测试
-        try:
-            ping_result = ping(ip, count=3, timeout=2)
-            result['latency'] = ping_result.rtt_avg_ms
-            result['loss'] = ping_result.packet_loss
-        except:
-            pass
+        ping_result = ping(ip, count=3, timeout=2)
+        result.update({
+            'latency': ping_result.rtt_avg_ms,
+            'loss': ping_result.packet_loss
+        })
         
         # HTTP测试
         try:
             start = datetime.now()
-            self.session.get(
-                f'http://{ip}/',
-                headers={'Host': domain},
-                timeout=3,
-                allow_redirects=False
+            requests.head(
+                f'http://{ip}/', 
+                headers={'Host': "github.com"},
+                timeout=3
             )
             result['http'] = (datetime.now() - start).total_seconds() * 1000
         except:
             result['http'] = 999
         
-        # 评分算法
-        result['score'] = (result['latency'] * 0.6) + (result['loss'] * 500) + (result['http'] * 0.4)
+        # 综合评分
+        result['score'] = (result['latency'] * 0.5) + (result['loss'] * 500) + (result['http'] * 0.5)
         return result
 #endregion
 
-#region 命令行接口
+#region Hosts管理
+class HostsManager:
+    def __init__(self):
+        self.temp_controller = TempModeController()
+    
+    def apply_optimization(self, optimal_ips, permanent=True):
+        original = self.clean_hosts_content()
+        new_block = self._generate_block(optimal_ips)
+        
+        if permanent:
+            self._write_permanent(original, new_block)
+        else:
+            self._write_temporary(original, new_block)
+        flush_dns()
+
+    def restore_optimization(self):
+        try:
+            self.temp_controller.write_hosts(self.clean_hosts_content())
+            flush_dns()
+            return True
+        except Exception as e:
+            print(f"恢复失败: {str(e)}")
+            return False
+    
+    def clean_hosts_content(self):
+        return MARKER_REGEX.sub('', self.temp_controller._read_hosts()).strip()
+    
+    def _generate_block(self, ips):
+        block = [TEMP_MARKER]
+        for domain, ip_list in ips.items():
+            block.extend(f"{ip.ljust(16)}{domain}" for ip in ip_list)
+        block.append("# End Block")
+        return '\n'.join(block)
+    
+    def _write_permanent(self, original, new_block):
+        self.temp_controller.write_hosts(f"{original}\n\n{new_block}")
+    
+    def _write_temporary(self, original, new_block):
+        self.temp_controller.activate()
+        self.temp_controller.apply_temp_changes(f"{original}\n{new_block}")
+#endregion
+
+#region 主程序
+def flush_dns():
+    """跨平台DNS刷新"""
+    commands = {
+        'win32': 'ipconfig /flushdns',
+        'darwin': 'dscacheutil -flushcache',
+        'linux': 'systemd-resolve --flush-caches'
+    }
+    subprocess.run(commands[CURRENT_PLATFORM], shell=True, check=True)
+
 def clear_screen():
-    """跨平台清屏"""
-    os.system('cls' if platform.system() == 'Windows' else 'clear')
+    os.system('cls' if CURRENT_PLATFORM == 'win32' else 'clear')
 
 def main():
     ensure_admin()
+    fixer = ObjectsFixer()
+    optimizer = NetworkOptimizer()
     hosts = HostsManager()
-    optimizer = GitHubOptimizer()
+    mode = 'temp'
 
     try:
         while True:
             clear_screen()
-            print(f'''
-GitHub网络优化工具 Version {VERSION}
+            print(f'''GitHub 网络优化工具 v1.3.7.0
+当前模式: {'永久' if mode == 'perm' else '临时'}
 1. 应用优化配置
-2. 恢复原始配置
-3. 退出''')
-            choice = input("请选择: ").strip()
+2. 移除优化配置
+3. 网络诊断修复
+4. 切换模式
+5. 退出程序''')
 
-            if choice == '1':
+            choice = input("请选择操作 (1-5): ").strip()
+            
+            if choice == "1":
                 clear_screen()
-                print("🔄 获取最新IP...")
-                ip_map = optimizer.fetch_ips()
-                print("⏱️ 测试节点性能...")
-                optimized = optimizer.benchmark(ip_map)
-                print("⚡ 应用配置...")
-                hosts.apply_optimization(optimized)
+                print("🔄 获取最新IP信息...")
+                ip_data = optimizer.get_github_ips()
+                
+                print("⏱️ 网络质量测试中...")
+                best_ips = optimizer.benchmark_ips(ip_data)
+                
+                print("⚡ 应用优化配置...")
+                hosts.apply_optimization(best_ips, mode == 'perm')
                 print("✅ 优化完成！")
-                input("\n按回车返回主菜单...")
-            elif choice == '2':
+                input("按回车继续...")
+                
+            elif choice == "2":
                 clear_screen()
-                hosts.restore()
-                print("✅ 配置已恢复")
-                input("\n按回车返回主菜单...")
-            elif choice == '3':
-                break
+                if hosts.restore_optimization():
+                    print("✅ 恢复完成！")
+                else:
+                    print("❌ 恢复失败")
+                input("按回车继续...")
+                
+            elif choice == "3":
+                clear_screen()
+                print("🩺 执行网络诊断...")
+                fixer.apply_fix()
+                test_connection('github.com', 443)
+                test_connection('objects.githubusercontent.com', 443)
+                input("按回车继续...")
+                
+            elif choice == "4":
+                mode = 'perm' if mode == 'temp' else 'temp'
+                print(f"✅ 已切换至{'永久' if mode == 'perm' else '临时'}模式")
+                input("按回车继续...")
+                
+            elif choice == "5":
+                print("👋 感谢使用！")
+                sys.exit(0)
+                
             else:
-                print("无效输入")
-                input("\n按回车重新选择...")
-    except KeyboardInterrupt:
-        hosts.restore()
-        print("\n已恢复配置并退出")
+                print("⚠️ 无效输入")
+                input("按回车继续...")
+
+    except Exception as e:
+        print(f"❌ 发生错误: {str(e)}")
+        sys.exit(1)
+
+def test_connection(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=3):
+            print(f"✔️ {host}:{port} 连接正常")
+            return True
+    except Exception as e:
+        print(f"❌ {host}:{port} 连接失败: {str(e)}")
+        return False
 
 if __name__ == "__main__":
     main()
