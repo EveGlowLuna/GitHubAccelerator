@@ -16,7 +16,7 @@ from pythonping import ping
 
 #region 跨平台配置
 HOSTS_PATHS = {
-    'windows': r'C:\Windows\System32\drivers\etc\hosts',
+    'win32': r'C:\Windows\System32\drivers\etc\hosts',
     'darwin': '/private/etc/hosts',
     'linux': '/etc/hosts'
 }
