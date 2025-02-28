@@ -405,6 +405,7 @@ def main():
 
     except Exception as e:
         print(f"❌ 发生错误: {str(e)}")
+        input('按回车退出程序...')
         sys.exit(1)
 
 def test_connection(host, port):
