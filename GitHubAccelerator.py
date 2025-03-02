@@ -189,6 +189,7 @@ class NetworkOptimizer:
 
     def _init_emergency_file(self):
         if not self.emergency_file.exists() or self._needs_update():
+            print('正在更新应急IP，请稍等...')
             self._refresh_emergency_ips()
 
     def _needs_update(self):
@@ -350,7 +351,7 @@ def main():
     try:
         while True:
             clear_screen()
-            print(f'''GitHub 网络优化工具 v1.3.7.0
+            print(f'''GitHub 网络优化工具 v1.3.7.0 made by EveGlow(YangChen114514)
 当前模式: {'永久' if mode == 'perm' else '临时'}
 1. 应用优化配置
 2. 移除优化配置
@@ -404,6 +405,7 @@ def main():
 
     except Exception as e:
         print(f"❌ 发生错误: {str(e)}")
+        input('按回车退出程序...')
         sys.exit(1)
 
 def test_connection(host, port):
